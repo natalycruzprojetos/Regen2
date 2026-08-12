@@ -71,12 +71,12 @@
   box-shadow: var(--shadow-sm); padding: 18px 22px 20px;
 }
 .prov-card-top{ display:flex; align-items:flex-start; justify-content:space-between; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
-.prov-id{
-  font-size: 11px; font-weight: 700; color: #fff; background: var(--text-faint);
-  border-radius: 6px; padding: 3px 8px; margin-right: 8px; white-space: nowrap;
+.prov-numero{
+  font-size: 16px; font-weight: 800; color: var(--accent-dark);
+  letter-spacing: .01em; margin-bottom: 3px;
 }
-.prov-epigrafe{ font-size: 15.5px; font-weight: 700; line-height: 1.4; color: var(--text); }
-.prov-data{ font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+.prov-epigrafe{ font-size: 15px; font-weight: 600; line-height: 1.4; color: var(--text); }
+.prov-data{ font-size: 12px; color: var(--text-muted); margin-top: 5px; }
 
 .prov-badges{ display:flex; gap: 6px; flex-wrap: wrap; align-items:center; }
 .badge{
@@ -93,10 +93,34 @@
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   padding: 11px 15px; margin: 10px 0 14px;
 }
-.prov-prazo{
-  font-size: 12px; color: var(--warning); background: var(--warning-soft);
-  border-radius: var(--radius-sm); padding: 7px 12px; margin: 0 0 12px;
-  font-weight: 600;
+.prov-vigencia, .prov-prazo{
+  font-size: 12.3px; color: var(--text); background: var(--surface-alt);
+  border-radius: var(--radius-sm); padding: 7px 12px; margin: 0 0 8px;
+  font-weight: 600; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+}
+.prov-vigencia.nao-verificado{ color: var(--danger); background: var(--danger-soft); }
+
+.alerta{
+  font-size: 10.8px; font-weight: 700; border-radius: 999px; padding: 2px 9px;
+  white-space: nowrap; text-transform: uppercase; letter-spacing: .02em;
+}
+.alerta-ok{ background: var(--success-soft); color: var(--success); }
+.alerta-vencido{ background: var(--danger-soft); color: var(--danger); }
+.alerta-urgente{ background: var(--danger-soft); color: var(--danger); }
+.alerta-atencao{ background: var(--warning-soft); color: var(--warning); }
+.alerta-neutro{ background: var(--neutral-soft); color: var(--neutral); }
+
+.resumo-aprofundado-painel{
+  display:none; font-size: 13px; line-height: 1.65; color: var(--text);
+  background: var(--surface-alt); border-radius: var(--radius-sm);
+  padding: 14px 16px; margin: 10px 0 4px;
+}
+.resumo-aprofundado-painel.aberto{ display:block; animation: fade .15s ease; }
+.resumo-aprofundado-painel p{ margin: 0; }
+.fonte-aviso{
+  font-size: 12px; font-weight: 700; color: var(--danger);
+  background: var(--danger-soft); border-radius: var(--radius-sm);
+  padding: 8px 12px; margin: 0 0 10px !important;
 }
 
 .prov-meta{
@@ -115,10 +139,10 @@
 .prov-link{ font-size: 12.5px; font-weight: 600; }
 
 .prov-acoes{ display:flex; gap:8px; flex-wrap: wrap; margin-top: 6px; }
-.prov-acoes .btn{
+.prov-acoes .btn, .email-input-row .btn{
   background: var(--surface-alt); color: var(--text); font-weight:600;
 }
-.prov-acoes .btn:hover{ background: var(--border); }
+.prov-acoes .btn:hover, .email-input-row .btn:hover{ background: var(--border); }
 .prov-acoes .btn.primario{ background: var(--accent); color:#fff; }
 .prov-acoes .btn.primario:hover{ background: var(--accent-dark); }
 
@@ -192,6 +216,10 @@
   text-align:center; color: var(--text-faint); font-size: 13.5px; padding: 60px 20px;
 }
 
+/* ---------- Relatório: ajustes específicos (base em .rel-* de style.css) ---------- */
+.resumo-card.andamento .num{ color: var(--accent); }
+.pendencia.urgente{ border-left-color: var(--danger); background: var(--danger-soft); }
+
 /* ---------- Rodapé de página ---------- */
 .prov-rodape{ text-align:center; font-size: 11.5px; color: var(--text-faint); margin: 30px 0 40px; line-height:1.6; }
 
@@ -206,5 +234,10 @@
 
 /* ---------- Impressão ---------- */
 @media print{
-  .sidebar, .filtros-painel, .prov-acoes, .email-painel, .toast-container{ display:none !important; }
+  .sidebar, .filtros-painel, .prov-acoes, .email-painel, .toast-container,
+  .prov-capa, .prov-lista, .prov-rodape, .colab-painel{ display:none !important; }
+  .app{ display:block; }
+  .main{ max-width:none; padding:0; }
+  .relatorio{ display:none; }
+  .relatorio.ativa{ display:block !important; }
 }

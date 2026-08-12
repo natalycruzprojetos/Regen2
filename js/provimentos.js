@@ -2,22 +2,89 @@
    Monitor de Provimentos CNJ — app.js
    ============================================================ */
 
-const STORAGE_KEY = "provimentos-cnj::v1";
+const STORAGE_KEY = "provimentos-cnj::v2";
 const JSONBLOB_BASE_P = "https://jsonblob.com/api/jsonBlob";
 
 let ESTADO_P = {
   sessaoId: null,
+  cartorio: "", titular: "", dataReferencia: "",
   adequacoes: {} // { [id]: { status, obs, atualizadoEm } }
 };
 
-let FILTROS = { busca: "", especialidade: "TODAS", situacao: "TODAS", adequacao: "TODAS" };
+let FILTROS = { busca: "", especialidade: "TODAS", situacao: "TODAS", adequacao: "TODAS", ano: "TODOS" };
 let EMAILS_POR_ID = {};   // { [id]: string[] } — em memória, não persistido individualmente
 let EMAILS_PADRAO = [];   // últimos e-mails usados, reaproveitados ao abrir outro cartão
-let PAINEL_EMAIL_ABERTO = null; // id do cartão com o painel de e-mail aberto, se algum
+let PAINEL_EMAIL_ABERTO = null;   // id do cartão com o painel de e-mail aberto, se algum
+let PAINEL_RESUMO_ABERTO = null;  // id do cartão com o resumo aprofundado aberto, se algum
 let timerEnvioSessaoP = null;
 let timerPollingP = null;
 
-/* ---------------- Utilidades ---------------- */
+/* ---------------- Utilidades de data ---------------- */
+function hojeISO(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function parseISO(iso){
+  if(!iso) return null;
+  const [a, m, d] = iso.split("-").map(Number);
+  return new Date(a, m - 1, d);
+}
+function addDaysISO(iso, dias){
+  const d = parseISO(iso);
+  if(!d || dias == null) return null;
+  d.setDate(d.getDate() + dias);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function diasEntre(isoAlvo){
+  const alvo = parseISO(isoAlvo);
+  if(!alvo) return null;
+  const hoje = parseISO(hojeISO());
+  return Math.round((alvo - hoje) / 86400000);
+}
+function formatarData(iso){
+  if(!iso) return "—";
+  const [ano, mes, dia] = iso.split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+function proximaDataAnual(mmdd){
+  if(!mmdd) return null;
+  const [mes, dia] = mmdd.split("-").map(Number);
+  const hoje = parseISO(hojeISO());
+  let ano = hoje.getFullYear();
+  let candidata = new Date(ano, mes - 1, dia);
+  if(candidata < hoje) candidata = new Date(ano + 1, mes - 1, dia);
+  return `${candidata.getFullYear()}-${String(candidata.getMonth()+1).padStart(2,"0")}-${String(candidata.getDate()).padStart(2,"0")}`;
+}
+
+/* ---------------- Cálculo de vigência e prazos ---------------- */
+function vigenciaCalculada(p){
+  const v = p.vigencia || {};
+  if(v.tipo === "imediata") return p.dataPublicacaoDje || null;
+  if(v.tipo === "dias_apos_publicacao") return addDaysISO(p.dataPublicacaoDje, v.dias);
+  if(v.tipo === "data_fixa") return v.dataFixa;
+  return null; // indeterminado
+}
+function prazoCalculado(p, prazo, vigenciaISO){
+  if(prazo.tipo === "data_fixa") return prazo.dataFixa;
+  if(prazo.tipo === "dias_apos_publicacao") return addDaysISO(p.dataPublicacaoDje, prazo.dias);
+  if(prazo.tipo === "dias_apos_assinatura") return addDaysISO(p.dataAssinatura, prazo.dias);
+  if(prazo.tipo === "dias_apos_vigencia") return addDaysISO(vigenciaISO, prazo.dias);
+  if(prazo.tipo === "recorrente_anual") return proximaDataAnual(prazo.dataFixa);
+  return null; // recorrente_mensal, recorrente_semestral, recorrente_outro, outro sem data-base
+}
+function badgeAlerta(diasRestantes, { emVigorLabel = false } = {}){
+  if(diasRestantes == null) return "";
+  if(diasRestantes <= 0){
+    return emVigorLabel
+      ? `<span class="alerta alerta-ok">Em vigor</span>`
+      : `<span class="alerta alerta-vencido">Vencido há ${Math.abs(diasRestantes)} dia(s)</span>`;
+  }
+  if(diasRestantes <= 15) return `<span class="alerta alerta-urgente">Faltam ${diasRestantes} dia(s)</span>`;
+  if(diasRestantes <= 45) return `<span class="alerta alerta-atencao">Faltam ${diasRestantes} dia(s)</span>`;
+  return `<span class="alerta alerta-neutro">Faltam ${diasRestantes} dia(s)</span>`;
+}
+
+/* ---------------- Utilidades gerais ---------------- */
 function escapeHtml(s){
   return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
@@ -25,11 +92,6 @@ function escapeAttr(s){ return escapeHtml(s).replace(/"/g, "&quot;"); }
 function horaAtual(){
   const d = new Date();
   return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-}
-function formatarData(iso){
-  if(!iso) return "—";
-  const [ano, mes, dia] = iso.split("-");
-  return `${dia}/${mes}/${ano}`;
 }
 function rotuloStatus(valor){
   const s = STATUS_ADEQUACAO.find(x => x.valor === valor);
@@ -54,7 +116,7 @@ function salvar(){
 function carregar(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw) ESTADO_P = Object.assign({ sessaoId: null, adequacoes: {} }, JSON.parse(raw));
+    if(raw) ESTADO_P = Object.assign({ sessaoId: null, cartorio: "", titular: "", dataReferencia: "", adequacoes: {} }, JSON.parse(raw));
   }catch(e){ /* ignore */ }
 }
 function obterAdequacao(id){
@@ -69,6 +131,7 @@ function setAdequacao(id, patch){
 /* ---------------- Filtros ---------------- */
 function provimentoCorrespondeFiltro(p){
   const a = obterAdequacao(p.id);
+  if(FILTROS.ano !== "TODOS" && String(p.ano) !== String(FILTROS.ano)) return false;
   if(FILTROS.especialidade !== "TODAS" && !p.especialidades.includes(FILTROS.especialidade)) return false;
   if(FILTROS.situacao !== "TODAS" && p.situacao !== FILTROS.situacao) return false;
   if(FILTROS.adequacao !== "TODAS" && a.status !== FILTROS.adequacao) return false;
@@ -80,6 +143,18 @@ function provimentoCorrespondeFiltro(p){
     if(!alvo.includes(FILTROS.busca.toLowerCase())) return false;
   }
   return true;
+}
+function provimentosOrdenados(lista){
+  // Ordena por data de publicação no DJe quando confirmada para ambos os itens;
+  // quando a data de publicação de algum dos dois não pôde ser confirmada
+  // (ex.: Provimento 243/2026), usa a numeração do ato como critério — que segue
+  // a ordem cronológica de expedição do CNJ e evita distorções por datas incertas.
+  return lista.slice().sort((a, b) => {
+    if(a.dataPublicacaoDje && b.dataPublicacaoDje && a.dataPublicacaoDje !== b.dataPublicacaoDje){
+      return a.dataPublicacaoDje < b.dataPublicacaoDje ? -1 : 1;
+    }
+    return a.id - b.id;
+  });
 }
 
 /* ---------------- Renderização: sidebar ---------------- */
@@ -119,6 +194,11 @@ function renderSidebar(){
       <span class="nav-badge">${n}</span>
     </button></li>`;
   }).join("");
+
+  const totalAvaliados = PROVIMENTOS.filter(p => obterAdequacao(p.id).status !== "nao_avaliado").length;
+  const pct = Math.round((totalAvaliados / PROVIMENTOS.length) * 100);
+  document.getElementById("progresso-txt").textContent = `${totalAvaliados} de ${PROVIMENTOS.length} provimentos avaliados (${pct}%)`;
+  document.getElementById("progresso-fill").style.width = Math.min(pct, 100) + "%";
 }
 
 /* ---------------- Renderização: filtros (selects) ---------------- */
@@ -134,6 +214,11 @@ function preencherSelectsFiltro(){
     STATUS_ADEQUACAO.map(s => `<option value="${s.valor}">${s.rotulo}</option>`).join("");
   selAdeq.value = FILTROS.adequacao;
 
+  const anos = Array.from(new Set(PROVIMENTOS.map(p => p.ano))).sort((a, b) => b - a);
+  const selAno = document.getElementById("f-ano");
+  selAno.innerHTML = `<option value="TODOS">Todos</option>` + anos.map(a => `<option value="${a}">${a}</option>`).join("");
+  selAno.value = FILTROS.ano;
+
   document.getElementById("f-situacao").value = FILTROS.situacao;
   document.getElementById("f-busca").value = FILTROS.busca;
 }
@@ -142,6 +227,8 @@ function preencherSelectsFiltro(){
 function renderCard(p){
   const a = obterAdequacao(p.id);
   const emails = EMAILS_POR_ID[p.id] || [];
+  const vigISO = vigenciaCalculada(p);
+  const diasVig = vigISO ? diasEntre(vigISO) : null;
 
   const badgesEsp = p.especialidades.map(cod =>
     `<span class="badge esp">${cod === "TODAS" ? "Todas as especialidades" : ESPECIALIDADES[cod]}</span>`
@@ -153,26 +240,49 @@ function renderCard(p){
 
   const respChips = p.responsaveis.map(r => `<span class="chip resp">${escapeHtml(r)}</span>`).join("");
 
-  const prazoHtml = p.prazo ? `<div class="prov-prazo">⏱ Prazo / periodicidade: ${escapeHtml(p.prazo)}</div>` : "";
-
   const emailTagsHtml = emails.map(em => `
     <span class="email-tag">${escapeHtml(em)}
       <button type="button" data-action="remove-email" data-id="${p.id}" data-email="${escapeAttr(em)}" aria-label="Remover">&times;</button>
     </span>`).join("");
 
+  // ---- Vigência ----
+  let vigenciaHtml;
+  if(!p.fonteVerificada && p.vigencia.tipo === "indeterminado"){
+    vigenciaHtml = `<div class="prov-vigencia nao-verificado">⚠ Vigência não confirmada na fonte oficial — verifique o DJe antes de contar prazos. ${escapeHtml(p.vigencia.textoFonte || "")}</div>`;
+  } else if(vigISO){
+    const label = diasVig <= 0 ? `Em vigor desde ${formatarData(vigISO)}` : `Entra em vigor em ${formatarData(vigISO)}`;
+    vigenciaHtml = `<div class="prov-vigencia">📅 ${label} ${badgeAlerta(diasVig, { emVigorLabel: true })}</div>`;
+  } else {
+    vigenciaHtml = `<div class="prov-vigencia">📅 Vigência: não determinada automaticamente.</div>`;
+  }
+
+  // ---- Prazos ----
+  const prazosHtml = (p.prazos || []).map(prazo => {
+    const dataCalc = prazoCalculado(p, prazo, vigISO);
+    const dias = dataCalc ? diasEntre(dataCalc) : null;
+    const dataLabel = dataCalc ? ` — ${formatarData(dataCalc)}` : "";
+    const alerta = dias != null ? badgeAlerta(dias) : "";
+    return `<div class="prov-prazo">⏱ ${escapeHtml(prazo.descricao)}${dataLabel} ${alerta}</div>`;
+  }).join("");
+
+  // ---- Resumo aprofundado (painel) ----
+  const resumoAberto = PAINEL_RESUMO_ABERTO === p.id;
+  const avisoFonte = !p.fonteVerificada ? `<p class="fonte-aviso">⚠ Esta pesquisa não pôde ser confirmada com segurança na fonte oficial — verifique o texto do ato no site do CNJ antes de uso formal.</p>` : "";
+
   return `
   <article class="prov-card" data-card-id="${p.id}">
     <div class="prov-card-top">
       <div>
-        <span class="prov-id">Prov. ${p.id}/2026</span>
+        <div class="prov-numero">Provimento ${ORGAO} ${p.id}/${p.ano}</div>
         <div class="prov-epigrafe">${escapeHtml(p.epigrafe)}</div>
-        <div class="prov-data">Publicado em ${formatarData(p.data)} · vigência: a partir da publicação (salvo prazo indicado abaixo)</div>
+        <div class="prov-data">Publicado em ${formatarData(p.dataPublicacaoDje)}${p.djeReferencia ? " · " + escapeHtml(p.djeReferencia) : ""}</div>
       </div>
       <div class="prov-badges">${badgeSituacao}${badgesEsp}</div>
     </div>
 
     <div class="prov-resumo">${escapeHtml(p.resumo)}</div>
-    ${prazoHtml}
+    ${vigenciaHtml}
+    ${prazosHtml}
 
     <div class="prov-meta">
       <div class="prov-meta-item">
@@ -191,9 +301,14 @@ function renderCard(p){
     </div>
 
     <div class="prov-acoes">
-      <button class="btn" type="button" data-action="deep-summary" data-id="${p.id}">🔎 Resumo aprofundado (Claude)</button>
+      <button class="btn" type="button" data-action="toggle-resumo" data-id="${p.id}">${resumoAberto ? "▲ Ocultar resumo aprofundado" : "🔎 Ler resumo aprofundado"}</button>
       <button class="btn" type="button" data-action="gen-pdf" data-id="${p.id}">⬇ Gerar PDF do provimento</button>
       <button class="btn" type="button" data-action="toggle-email" data-id="${p.id}">✉ Notificar responsáveis</button>
+    </div>
+
+    <div class="resumo-aprofundado-painel ${resumoAberto ? "aberto" : ""}" id="resumo-painel-${p.id}">
+      ${avisoFonte}
+      <p>${escapeHtml(p.resumoAprofundado)}</p>
     </div>
 
     <div class="adequacao-painel">
@@ -225,9 +340,7 @@ function renderCard(p){
 }
 
 function renderLista(){
-  const lista = PROVIMENTOS
-    .filter(provimentoCorrespondeFiltro)
-    .sort((a, b) => b.data.localeCompare(a.data));
+  const lista = provimentosOrdenados(PROVIMENTOS.filter(provimentoCorrespondeFiltro));
 
   const container = document.getElementById("prov-lista");
   document.getElementById("filtro-contador").textContent =
@@ -243,9 +356,16 @@ function renderLista(){
   }
 }
 
+function renderCapa(){
+  document.getElementById("in-cartorio").value = ESTADO_P.cartorio || "";
+  document.getElementById("in-titular").value = ESTADO_P.titular || "";
+  document.getElementById("in-data-ref").value = ESTADO_P.dataReferencia || "";
+}
+
 function renderTudo(){
   renderSidebar();
   renderLista();
+  renderCapa();
 }
 
 /* ---------------- Ações de e-mail ---------------- */
@@ -262,30 +382,35 @@ function adicionarEmail(id){
   PAINEL_EMAIL_ABERTO = id;
   renderLista();
 }
-
 function removerEmail(id, email){
   EMAILS_POR_ID[id] = (EMAILS_POR_ID[id] || []).filter(e => e !== email);
   PAINEL_EMAIL_ABERTO = id;
   renderLista();
 }
-
 function abrirPainelEmail(id){
   if(!EMAILS_POR_ID[id] && EMAILS_PADRAO.length) EMAILS_POR_ID[id] = EMAILS_PADRAO.slice();
   const jaAberto = PAINEL_EMAIL_ABERTO === id;
   PAINEL_EMAIL_ABERTO = jaAberto ? null : id;
   renderLista();
 }
+function alternarResumoAprofundado(id){
+  PAINEL_RESUMO_ABERTO = PAINEL_RESUMO_ABERTO === id ? null : id;
+  renderLista();
+  if(PAINEL_RESUMO_ABERTO === id){
+    const el = document.getElementById(`resumo-painel-${id}`);
+    if(el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
 
 function enviarEmail(id){
   const p = PROVIMENTOS.find(x => x.id === Number(id));
   const emails = EMAILS_POR_ID[id] || [];
   if(!emails.length){ toast("Adicione ao menos um e-mail antes de enviar.", "erro"); return; }
-  const assunto = `Provimento CNJ ${p.id}/2026 — ${p.epigrafe}`;
+  const assunto = `Provimento ${ORGAO} ${p.id}/${p.ano} — ${p.epigrafe}`;
   const corpo = `Olá,\n\nSegue provimento do CNJ para conhecimento e providências internas:\n\n` +
-    `Provimento ${p.id}/2026 — publicado em ${formatarData(p.data)}\n` +
+    `Provimento ${ORGAO} ${p.id}/${p.ano} — publicado em ${formatarData(p.dataPublicacaoDje)}\n` +
     `${p.epigrafe}\n\n` +
     `Resumo: ${p.resumo}\n\n` +
-    (p.prazo ? `Prazo/periodicidade: ${p.prazo}\n\n` : "") +
     `Íntegra do ato: ${p.url}\n\n` +
     `Anexe a este e-mail o PDF gerado pelo botão "Gerar PDF do provimento" no monitor.\n\n` +
     `Monitor de Provimentos CNJ — ${window.location.origin}${window.location.pathname}`;
@@ -301,68 +426,76 @@ function gerarPDF(id){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const margem = 56;
-  let y = 64;
+  let y = 60;
   const largura = 595 - margem * 2;
+  const alturaPagina = 800;
 
-  doc.setFont("helvetica", "bold"); doc.setFontSize(15);
-  doc.text(`Provimento CNJ ${p.id}/2026`, margem, y); y += 22;
+  const quebraPagina = (linhasAltura) => {
+    if(y + linhasAltura > alturaPagina){ doc.addPage(); y = 60; }
+  };
 
-  doc.setFont("helvetica", "normal"); doc.setFontSize(11);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(17);
+  doc.text(`Provimento ${ORGAO} ${p.id}/${p.ano}`, margem, y); y += 24;
+
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10.5);
   doc.setTextColor(90, 90, 90);
-  doc.text(`Publicado em ${formatarData(p.data)}  ·  Situação: ${p.situacao}  ·  Classificação: ${p.classificacao}`, margem, y); y += 22;
+  doc.text(`Publicado em ${formatarData(p.dataPublicacaoDje)} (${p.djeReferencia || "DJe não confirmado"})  ·  Situação: ${p.situacao}`, margem, y); y += 20;
 
   doc.setTextColor(20, 20, 20);
   doc.setFont("helvetica", "bold"); doc.setFontSize(12.5);
-  doc.text(doc.splitTextToSize(p.epigrafe, largura), margem, y);
-  y += doc.splitTextToSize(p.epigrafe, largura).length * 16 + 14;
+  const linhasEpigrafe = doc.splitTextToSize(p.epigrafe, largura);
+  doc.text(linhasEpigrafe, margem, y);
+  y += linhasEpigrafe.length * 16 + 12;
 
   const secao = (titulo, texto) => {
+    if(!texto) return;
     doc.setFont("helvetica", "bold"); doc.setFontSize(10.5);
     doc.setTextColor(47, 111, 109);
+    quebraPagina(14);
     doc.text(titulo.toUpperCase(), margem, y); y += 14;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(11);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10.5);
     doc.setTextColor(20, 20, 20);
     const linhas = doc.splitTextToSize(texto, largura);
+    quebraPagina(linhas.length * 13.5);
     doc.text(linhas, margem, y);
-    y += linhas.length * 14.5 + 16;
+    y += linhas.length * 13.5 + 14;
   };
 
+  const vigISO = vigenciaCalculada(p);
+  const vigTexto = !p.fonteVerificada && p.vigencia.tipo === "indeterminado"
+    ? `Não confirmada na fonte oficial. ${p.vigencia.textoFonte || ""}`
+    : vigISO ? `${formatarData(vigISO)} (${p.vigencia.textoFonte || ""})` : "Não determinada.";
+
   secao("Resumo prático", p.resumo);
-  if(p.prazo) secao("Prazo / periodicidade", p.prazo);
+  secao("Vigência", vigTexto);
+  if((p.prazos || []).length){
+    const txtPrazos = p.prazos.map(pr => {
+      const dc = prazoCalculado(p, pr, vigISO);
+      return `${pr.descricao}${dc ? " — " + formatarData(dc) : ""} (${pr.textoFonte})`;
+    }).join("\n");
+    secao("Prazos", txtPrazos);
+  }
   secao("Áreas internas envolvidas", p.areas === "NA" ? "Não especificado na fonte" : p.areas);
   secao("Responsáveis pela leitura", p.responsaveis.join(", "));
   secao("Especialidades aplicáveis", p.especialidades.map(c => ESPECIALIDADES[c]).join(", "));
-  secao("Observações da auditoria interna", p.observacoes);
+  secao("Resumo aprofundado", p.resumoAprofundado + (!p.fonteVerificada ? " [ATENÇÃO: fonte não confirmada — verifique o DJe oficial antes de uso formal]" : ""));
   secao("Íntegra do ato", p.url);
 
   const a = obterAdequacao(p.id);
   secao("Status de adequação interna registrado pelo cartório", rotuloStatus(a.status) + (a.obs ? " — " + a.obs : ""));
 
-  doc.setFontSize(9); doc.setTextColor(150, 150, 150);
-  doc.text("Gerado pelo Monitor de Provimentos CNJ — Regen · não substitui a leitura do ato normativo na íntegra.", margem, 800);
+  quebraPagina(20);
+  doc.setFontSize(8.5); doc.setTextColor(150, 150, 150);
+  doc.text("Gerado pelo Monitor de Provimentos CNJ — Regen · não substitui a leitura do ato normativo na íntegra.", margem, alturaPagina);
 
-  doc.save(`provimento-cnj-${p.id}-2026.pdf`);
+  doc.save(`provimento-cnj-${p.id}-${p.ano}.pdf`);
   toast("PDF gerado.", "ok");
-}
-
-/* ---------------- Resumo aprofundado (Claude) ---------------- */
-function abrirResumoAprofundado(id){
-  const p = PROVIMENTOS.find(x => x.id === Number(id));
-  const prompt = `Explique em detalhes o Provimento CNJ ${p.id}/2026 ("${p.epigrafe}"), disponível em ${p.url}. ` +
-    `Contexto interno do cartório: áreas envolvidas — ${p.areas === "NA" ? "não especificado" : p.areas}; ` +
-    `observações da auditoria — ${p.observacoes} ` +
-    `Quero entender: (1) o que muda na prática, (2) quais procedimentos internos preciso revisar, e (3) quais riscos de não conformidade devo priorizar.`;
-  navigator.clipboard.writeText(prompt).then(() => {
-    toast("Prompt copiado — cole na conversa com o Claude.", "ok");
-  }).catch(() => {
-    toast("Não foi possível copiar automaticamente. Copie o texto do provimento manualmente.", "erro");
-  });
-  window.open("https://claude.ai/new", "_blank", "noopener");
 }
 
 /* ---------------- Exportar / Importar status ---------------- */
 function exportarJSON(){
-  const blob = new Blob([JSON.stringify(ESTADO_P.adequacoes, null, 2)], { type: "application/json" });
+  const dados = { cartorio: ESTADO_P.cartorio, titular: ESTADO_P.titular, dataReferencia: ESTADO_P.dataReferencia, adequacoes: ESTADO_P.adequacoes };
+  const blob = new Blob([JSON.stringify(dados, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = "adequacao-provimentos-cnj.json";
@@ -375,7 +508,10 @@ function importarJSON(file){
   reader.onload = (e) => {
     try{
       const dados = JSON.parse(e.target.result);
-      ESTADO_P.adequacoes = Object.assign({}, ESTADO_P.adequacoes, dados);
+      if(dados.adequacoes) ESTADO_P.adequacoes = Object.assign({}, ESTADO_P.adequacoes, dados.adequacoes);
+      if(dados.cartorio != null) ESTADO_P.cartorio = dados.cartorio;
+      if(dados.titular != null) ESTADO_P.titular = dados.titular;
+      if(dados.dataReferencia != null) ESTADO_P.dataReferencia = dados.dataReferencia;
       salvar();
       renderTudo();
       toast("Status de adequação importado.", "ok");
@@ -384,6 +520,110 @@ function importarJSON(file){
     }
   };
   reader.readAsText(file);
+}
+
+/* ---------------- Relatório (score, conclusão, plano de ação) ---------------- */
+function calcularEstatisticas(){
+  const contagem = {}; STATUS_ADEQUACAO.forEach(s => contagem[s.valor] = 0);
+  PROVIMENTOS.forEach(p => contagem[obterAdequacao(p.id).status]++);
+  const total = PROVIMENTOS.length;
+  const naoAplicavel = contagem["nao_aplicavel"];
+  const baseCalculo = total - naoAplicavel;
+  let pontos = 0;
+  STATUS_ADEQUACAO.forEach(s => { if(s.peso != null) pontos += contagem[s.valor] * s.peso; });
+  const score = baseCalculo > 0 ? Math.round((pontos / baseCalculo) * 100) : 0;
+  return { contagem, total, naoAplicavel, baseCalculo, score, naoAvaliado: contagem["nao_avaliado"] };
+}
+function seloSVG(pct){
+  let cor = "#1F8A55", rotulo = "CONFORME";
+  if(pct < 60){ cor = "#C0392B"; rotulo = "CRÍTICO"; }
+  else if(pct < 85){ cor = "#B7791E"; rotulo = "ATENÇÃO"; }
+  return `
+  <svg class="selo-svg" width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-label="Selo de adequação: ${pct}%">
+    <circle cx="60" cy="60" r="54" fill="none" stroke="#EEF0F5" stroke-width="9"/>
+    <circle cx="60" cy="60" r="54" fill="none" stroke="${cor}" stroke-width="9" stroke-linecap="round"
+      stroke-dasharray="${2 * Math.PI * 54}" stroke-dashoffset="${2 * Math.PI * 54 * (1 - pct / 100)}"
+      transform="rotate(-90 60 60)"/>
+    <text x="60" y="58" text-anchor="middle" font-size="24" font-weight="700" fill="${cor}">${pct}%</text>
+    <text x="60" y="76" text-anchor="middle" font-size="9" font-weight="600" letter-spacing="1" fill="${cor}">${rotulo}</text>
+  </svg>`;
+}
+function textoConclusaoRelatorio(stats){
+  const { score, naoAvaliado, total, naoAplicavel } = stats;
+  let nivel, orientacao;
+  if(naoAvaliado === total){
+    nivel = "Avaliação ainda não iniciada.";
+    orientacao = "Registre o status de adequação de cada provimento para gerar um diagnóstico.";
+  } else if(score >= 85 && naoAvaliado === 0){
+    nivel = "Situação geral: adequada, com baixo risco de exposição correcional.";
+    orientacao = "O cartório atende à maior parte dos provimentos do CNJ monitorados. Recomenda-se manter rotina de reavaliação periódica e tratar os itens parciais ou em andamento remanescentes, sobretudo os que têm prazo próximo do vencimento.";
+  } else if(score >= 60){
+    nivel = "Situação geral: atenção — há pendências relevantes.";
+    orientacao = "Existem provimentos não adequados, parciais ou ainda não avaliados que podem gerar exposição em correição. Priorize o plano de ação abaixo, sobretudo os itens com prazo vencido ou próximo do vencimento.";
+  } else {
+    nivel = "Situação geral: crítica — exposição correcional relevante.";
+    orientacao = "O volume de provimentos não adequados ou não avaliados é significativo. Recomenda-se um plano de saneamento formal, com cronograma e responsáveis definidos, priorizando os itens com prazo vencido.";
+  }
+  const naoAvaliadoTxt = naoAvaliado > 0
+    ? ` Há ${naoAvaliado} provimento(s) ainda não avaliado(s) — conclua a avaliação antes de considerar o diagnóstico definitivo.`
+    : "";
+  const naTxt = naoAplicavel > 0 ? ` ${naoAplicavel} provimento(s) foram marcados como não aplicáveis e não entram no cálculo.` : "";
+  return `<p><b>${nivel}</b></p><p>${orientacao}${naoAvaliadoTxt}${naTxt}</p>`;
+}
+function urgenciaItem(p){
+  // menor número = mais urgente
+  const a = obterAdequacao(p.id);
+  const vigISO = vigenciaCalculada(p);
+  let menorDias = Infinity;
+  const prazosComData = (p.prazos || []).map(pr => prazoCalculado(p, pr, vigISO)).filter(Boolean);
+  if(vigISO) menorDias = Math.min(menorDias, diasEntre(vigISO));
+  prazosComData.forEach(d => { menorDias = Math.min(menorDias, diasEntre(d)); });
+  const temPrazoUrgente = menorDias !== Infinity && menorDias <= 45;
+  const pesoStatus = { nao_adequado: 0, nao_avaliado: 1, parcial: 2, andamento: 3, adequado: 5, nao_aplicavel: 6 }[a.status] ?? 4;
+  return { prioridade: (temPrazoUrgente ? 0 : 1) * 10 + pesoStatus, menorDias: menorDias === Infinity ? null : menorDias };
+}
+function renderRelatorio(){
+  const stats = calcularEstatisticas();
+
+  document.getElementById("rel-cartorio").textContent = ESTADO_P.cartorio || "Cartório não identificado";
+  document.getElementById("rel-titular").textContent = ESTADO_P.titular ? `Responsável pela verificação: ${ESTADO_P.titular}` : "";
+  document.getElementById("rel-data").textContent = ESTADO_P.dataReferencia ? `Data de referência: ${formatarData(ESTADO_P.dataReferencia)}` : "";
+  document.getElementById("rel-gerado").textContent = `Relatório gerado em ${new Date().toLocaleDateString("pt-BR")}`;
+
+  document.getElementById("selo-container").innerHTML = seloSVG(stats.score);
+
+  document.getElementById("resumo-adequado").textContent = stats.contagem.adequado;
+  document.getElementById("resumo-parcial").textContent = stats.contagem.parcial;
+  document.getElementById("resumo-andamento").textContent = stats.contagem.andamento;
+  document.getElementById("resumo-nao-adequado").textContent = stats.contagem.nao_adequado;
+  document.getElementById("resumo-na").textContent = stats.contagem.nao_aplicavel;
+  document.getElementById("resumo-pendente").textContent = stats.contagem.nao_avaliado;
+
+  document.getElementById("rel-conclusao-corpo").innerHTML = textoConclusaoRelatorio(stats);
+
+  const pendentes = PROVIMENTOS
+    .filter(p => obterAdequacao(p.id).status !== "adequado" && obterAdequacao(p.id).status !== "nao_aplicavel")
+    .map(p => ({ p, u: urgenciaItem(p) }))
+    .sort((a, b) => a.u.prioridade - b.u.prioridade || (a.u.menorDias ?? 9999) - (b.u.menorDias ?? 9999));
+
+  const cont = document.getElementById("rel-acoes-lista");
+  if(!pendentes.length){
+    cont.innerHTML = `<div class="sem-pendencia">Nenhuma ação pendente — todos os provimentos aplicáveis estão marcados como adequados.</div>`;
+  } else {
+    cont.innerHTML = pendentes.map(({ p, u }) => {
+      const a = obterAdequacao(p.id);
+      const urgente = u.menorDias != null && u.menorDias <= 45;
+      return `<div class="pendencia ${urgente ? "urgente" : ""}">
+        <div class="p-titulo">Provimento ${ORGAO} ${p.id}/${p.ano} — ${escapeHtml(p.epigrafe)}</div>
+        <div class="p-ref">Status atual: <b>${rotuloStatus(a.status)}</b>${u.menorDias != null ? " · " + badgeAlerta(u.menorDias, { emVigorLabel: true }) : ""}</div>
+        <div class="p-prov">${escapeHtml(p.resumo)}</div>
+        ${a.obs ? `<div class="p-meta">Observação do cartório: ${escapeHtml(a.obs)}</div>` : ""}
+      </div>`;
+    }).join("");
+  }
+
+  document.getElementById("relatorio").classList.add("ativa");
+  document.getElementById("relatorio").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /* ---------------- Sessão colaborativa (jsonblob.com) ---------------- */
@@ -439,7 +679,7 @@ async function receberSessaoP(silencioso){
     const remoto = await resp.json();
     if(JSON.stringify(remoto) !== JSON.stringify(ESTADO_P)){
       remoto.sessaoId = ESTADO_P.sessaoId;
-      ESTADO_P = Object.assign({ sessaoId: ESTADO_P.sessaoId, adequacoes: {} }, remoto);
+      ESTADO_P = Object.assign({ sessaoId: ESTADO_P.sessaoId, cartorio: "", titular: "", dataReferencia: "", adequacoes: {} }, remoto);
       renderTudo();
     }
     if(!silencioso) setColabStatusP("Sincronizado às " + horaAtual(), "ok");
@@ -510,11 +750,13 @@ document.addEventListener("click", (e) => {
       renderTudo();
       break;
     case "toggle-email": abrirPainelEmail(id); break;
+    case "toggle-resumo": alternarResumoAprofundado(Number(id)); break;
     case "add-email": adicionarEmail(id); break;
     case "remove-email": removerEmail(id, btn.dataset.email); break;
     case "send-email": enviarEmail(id); break;
     case "gen-pdf": gerarPDF(id); break;
-    case "deep-summary": abrirResumoAprofundado(id); break;
+    case "gerar-relatorio": renderRelatorio(); break;
+    case "imprimir-relatorio": window.print(); break;
   }
 });
 
@@ -530,6 +772,9 @@ document.addEventListener("change", (e) => {
     setAdequacao(e.target.dataset.id, { status: e.target.value });
     renderTudo();
   }
+  if(e.target.id === "in-cartorio"){ ESTADO_P.cartorio = e.target.value; salvar(); }
+  if(e.target.id === "in-titular"){ ESTADO_P.titular = e.target.value; salvar(); }
+  if(e.target.id === "in-data-ref"){ ESTADO_P.dataReferencia = e.target.value; salvar(); }
 });
 document.addEventListener("blur", (e) => {
   if(e.target.matches("textarea[data-action='obs']")){
@@ -555,8 +800,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("f-especialidade").addEventListener("change", (e) => { FILTROS.especialidade = e.target.value; renderTudo(); });
   document.getElementById("f-situacao").addEventListener("change", (e) => { FILTROS.situacao = e.target.value; renderLista(); });
   document.getElementById("f-adequacao").addEventListener("change", (e) => { FILTROS.adequacao = e.target.value; renderLista(); });
+  document.getElementById("f-ano").addEventListener("change", (e) => { FILTROS.ano = e.target.value; renderLista(); });
   document.getElementById("btn-limpar-filtros").addEventListener("click", () => {
-    FILTROS = { busca: "", especialidade: "TODAS", situacao: "TODAS", adequacao: "TODAS" };
+    FILTROS = { busca: "", especialidade: "TODAS", situacao: "TODAS", adequacao: "TODAS", ano: "TODOS" };
     preencherSelectsFiltro();
     renderTudo();
   });

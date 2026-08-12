@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Regen — Monitor de Provimentos CNJ</title>
-<meta name="description" content="Monitor dos provimentos do CNJ publicados no ano, com filtro por especialidade, situação normativa e status de adequação interna do cartório.">
+<meta name="description" content="Monitor dos provimentos do CNJ publicados por ano, com filtro por especialidade, situação normativa, ano e status de adequação interna do cartório, e relatório de adequação.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -50,7 +50,22 @@
 
     <header class="prov-capa">
       <h1>Monitor de Provimentos CNJ</h1>
-      <p class="subtitulo">Provimentos do Conselho Nacional de Justiça publicados neste ano, com resumo prático para leitura rápida do Oficial, áreas internas envolvidas, responsáveis pela leitura e o status de adequação interna registrado pelo cartório.</p>
+      <p class="subtitulo">Provimentos do Conselho Nacional de Justiça, em ordem cronológica de publicação, com resumo prático para leitura rápida do Oficial, vigência e prazos calculados, áreas internas envolvidas, responsáveis pela leitura e o status de adequação interna registrado pelo cartório.</p>
+
+      <div class="capa-fields">
+        <div class="field">
+          <label for="in-cartorio">Cartório</label>
+          <input type="text" id="in-cartorio" placeholder="Ex.: 5º Ofício de Registro de Imóveis de São Paulo" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="in-titular">Responsável pela verificação</label>
+          <input type="text" id="in-titular" placeholder="Nome do oficial ou preposto">
+        </div>
+        <div class="field">
+          <label for="in-data-ref">Data de referência</label>
+          <input type="date" id="in-data-ref">
+        </div>
+      </div>
     </header>
 
     <div class="colab-painel" id="colab-painel" style="display:none"></div>
@@ -59,6 +74,10 @@
       <div class="filtro-campo filtro-busca">
         <label for="f-busca">Buscar</label>
         <input type="text" id="f-busca" placeholder="Número, assunto, área ou responsável...">
+      </div>
+      <div class="filtro-campo">
+        <label for="f-ano">Ano</label>
+        <select id="f-ano"></select>
       </div>
       <div class="filtro-campo">
         <label for="f-especialidade">Especialidade</label>
@@ -82,8 +101,57 @@
 
     <div class="prov-lista" id="prov-lista"></div>
 
+    <!-- Barra de progresso e ação principal -->
+    <div class="barra" id="barra">
+      <span class="progresso-txt" id="progresso-txt">0 de 0 provimentos avaliados (0%)</span>
+      <div class="progresso-barra"><div class="progresso-fill" id="progresso-fill" style="width:0%"></div></div>
+      <div class="barra-btns">
+        <button class="btn primario" data-action="gerar-relatorio" type="button">Gerar relatório</button>
+      </div>
+    </div>
+
+    <!-- Relatório -->
+    <section class="relatorio" id="relatorio">
+      <div class="rel-head">
+        <div id="selo-container"></div>
+        <div class="rel-head-txt">
+          <h2>Relatório de Adequação a Provimentos CNJ</h2>
+          <p class="cartorio-nome" id="rel-cartorio">Cartório não identificado</p>
+          <p id="rel-titular"></p>
+          <p id="rel-data"></p>
+          <p id="rel-gerado"></p>
+        </div>
+      </div>
+
+      <div class="rel-resumo">
+        <div class="resumo-card sim"><span class="num" id="resumo-adequado">0</span><span class="lbl">Adequado</span></div>
+        <div class="resumo-card parcial"><span class="num" id="resumo-parcial">0</span><span class="lbl">Parcial</span></div>
+        <div class="resumo-card andamento"><span class="num" id="resumo-andamento">0</span><span class="lbl">Em andamento</span></div>
+        <div class="resumo-card nao"><span class="num" id="resumo-nao-adequado">0</span><span class="lbl">Não adequado</span></div>
+        <div class="resumo-card na"><span class="num" id="resumo-na">0</span><span class="lbl">Não aplicável</span></div>
+        <div class="resumo-card pendente"><span class="num" id="resumo-pendente">0</span><span class="lbl">Não avaliado</span></div>
+      </div>
+
+      <div class="rel-conclusao">
+        <h3>Conclusão</h3>
+        <div id="rel-conclusao-corpo"></div>
+      </div>
+
+      <div class="rel-acoes">
+        <button class="btn primario" data-action="imprimir-relatorio" type="button">Baixar / imprimir PDF</button>
+        <button class="btn claro" id="btn-exportar-2" type="button">Exportar status (JSON)</button>
+      </div>
+
+      <h3 style="font-size:17px; margin:6px 0 14px;">Plano de ação recomendado</h3>
+      <div id="rel-acoes-lista"></div>
+
+      <div class="rel-acoes">
+        <button class="btn primario" data-action="imprimir-relatorio" type="button">Baixar / imprimir PDF</button>
+      </div>
+    </section>
+
     <p class="prov-rodape">
-      Fonte: planilha interna de auditoria de provimentos CNJ, com link para a íntegra de cada ato no portal do CNJ (atos.cnj.jus.br). Os resumos e a classificação por especialidade são leitura analítica de apoio — não substituem a leitura do ato normativo na íntegra pelo responsável indicado. O status de adequação interna é de responsabilidade exclusiva do cartório. Dados de adequação salvos neste navegador; use "Exportar/Importar" ou a sessão colaborativa para manter os registros sincronizados entre computadores.
+      Fonte: planilha interna de auditoria de provimentos CNJ, com dados de publicação/vigência conferidos na página oficial de cada ato (atos.cnj.jus.br). Itens marcados com ⚠ não puderam ser confirmados com segurança e devem ser verificados diretamente no DJe antes de uso formal. Os resumos, prazos calculados e a classificação por especialidade são leitura analítica de apoio — não substituem a leitura do ato normativo na íntegra pelo responsável indicado. O status de adequação interna é de responsabilidade exclusiva do cartório. Dados salvos neste navegador; use "Exportar/Importar" ou a sessão colaborativa para manter os registros sincronizados entre computadores.
     </p>
   </main>
 </div>
@@ -92,5 +160,8 @@
 
 <script src="js/provimentos-data.js"></script>
 <script src="js/provimentos.js"></script>
+<script>
+  document.getElementById("btn-exportar-2").addEventListener("click", exportarJSON);
+</script>
 </body>
 </html>
