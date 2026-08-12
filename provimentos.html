@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regen — Monitor de Provimentos CNJ</title>
+<meta name="description" content="Monitor dos provimentos do CNJ publicados no ano, com filtro por especialidade, situação normativa e status de adequação interna do cartório.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/provimentos.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Menu lateral -->
+  <aside class="sidebar">
+    <a class="brand-voltar" href="index.html">&larr; Início Regen</a>
+    <div class="brand">
+      <div class="brand-mark">P</div>
+      <div class="brand-text">Regen<small>Monitor de Provimentos CNJ</small></div>
+    </div>
+
+    <div class="stats-bloco" id="stats-situacao">
+      <div class="stats-titulo">Situação normativa</div>
+    </div>
+
+    <div class="stats-bloco" id="stats-adequacao">
+      <div class="stats-titulo">Adequação interna</div>
+    </div>
+
+    <div class="stats-bloco">
+      <div class="stats-titulo">Atalhos por especialidade</div>
+      <ul class="especialidade-filtros" id="especialidade-filtros"></ul>
+    </div>
+
+    <div class="sidebar-rodape">
+      <button class="mini-btn" id="btn-colab">🔗 Sessão colaborativa</button>
+      <button class="mini-btn" id="btn-importar">⬆ Importar status (JSON)</button>
+      <input type="file" id="input-importar" accept="application/json" style="display:none">
+      <button class="mini-btn" id="btn-exportar">⬇ Exportar status (JSON)</button>
+    </div>
+  </aside>
+
+  <!-- Conteúdo principal -->
+  <main class="main prov-main">
+
+    <header class="prov-capa">
+      <h1>Monitor de Provimentos CNJ</h1>
+      <p class="subtitulo">Provimentos do Conselho Nacional de Justiça publicados neste ano, com resumo prático para leitura rápida do Oficial, áreas internas envolvidas, responsáveis pela leitura e o status de adequação interna registrado pelo cartório.</p>
+    </header>
+
+    <div class="colab-painel" id="colab-painel" style="display:none"></div>
+
+    <div class="filtros-painel">
+      <div class="filtro-campo filtro-busca">
+        <label for="f-busca">Buscar</label>
+        <input type="text" id="f-busca" placeholder="Número, assunto, área ou responsável...">
+      </div>
+      <div class="filtro-campo">
+        <label for="f-especialidade">Especialidade</label>
+        <select id="f-especialidade"></select>
+      </div>
+      <div class="filtro-campo">
+        <label for="f-situacao">Situação normativa</label>
+        <select id="f-situacao">
+          <option value="TODAS">Todas</option>
+          <option value="Vigente">Vigente</option>
+          <option value="Alterado">Alterado</option>
+        </select>
+      </div>
+      <div class="filtro-campo">
+        <label for="f-adequacao">Adequação interna</label>
+        <select id="f-adequacao"></select>
+      </div>
+      <button class="filtro-limpar" id="btn-limpar-filtros" type="button">Limpar filtros</button>
+      <span class="filtro-contador" id="filtro-contador"></span>
+    </div>
+
+    <div class="prov-lista" id="prov-lista"></div>
+
+    <p class="prov-rodape">
+      Fonte: planilha interna de auditoria de provimentos CNJ, com link para a íntegra de cada ato no portal do CNJ (atos.cnj.jus.br). Os resumos e a classificação por especialidade são leitura analítica de apoio — não substituem a leitura do ato normativo na íntegra pelo responsável indicado. O status de adequação interna é de responsabilidade exclusiva do cartório. Dados de adequação salvos neste navegador; use "Exportar/Importar" ou a sessão colaborativa para manter os registros sincronizados entre computadores.
+    </p>
+  </main>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script src="js/provimentos-data.js"></script>
+<script src="js/provimentos.js"></script>
+</body>
+</html>

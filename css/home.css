@@ -1,0 +1,44 @@
+/* ============================================================
+   Regen — página inicial (hub)
+   Reaproveita variáveis definidas em css/style.css
+   ============================================================ */
+
+body.home{
+  background: var(--bg);
+  min-height: 100vh;
+  display:flex; align-items:center; justify-content:center;
+  padding: 40px 20px;
+}
+.home-wrap{ max-width: 900px; width: 100%; }
+
+.home-header{ text-align:center; margin-bottom: 34px; }
+.home-mark{
+  width: 52px; height:52px; border-radius: 14px; background: var(--accent); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-weight:800; font-size: 22px;
+  margin: 0 auto 16px;
+}
+.home-header h1{ font-size: 26px; font-weight: 800; margin: 0 0 8px; color: var(--text); }
+.home-header p{ font-size: 14px; color: var(--text-muted); max-width: 560px; margin: 0 auto; }
+
+.home-cards{
+  display:grid; grid-template-columns: 1fr 1fr; gap: 20px;
+}
+.home-card{
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); padding: 28px 26px; text-decoration:none; color: var(--text);
+  display:flex; flex-direction:column; gap: 12px; transition: box-shadow .15s, transform .15s;
+}
+.home-card:hover{ box-shadow: var(--shadow-md); transform: translateY(-2px); text-decoration:none; }
+.home-card-icone{
+  width: 42px; height:42px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-dark);
+  display:flex; align-items:center; justify-content:center; font-size: 20px;
+}
+.home-card h2{ font-size: 17px; font-weight: 700; margin: 0; color: var(--text); }
+.home-card p{ font-size: 13.3px; color: var(--text-muted); margin: 0; line-height:1.55; }
+.home-card .home-card-cta{ font-size: 12.5px; font-weight: 700; color: var(--accent-dark); margin-top: auto; }
+
+.home-footer{ text-align:center; font-size: 11.5px; color: var(--text-faint); margin-top: 30px; }
+
+@media (max-width: 640px){
+  .home-cards{ grid-template-columns: 1fr; }
+}

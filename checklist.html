@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regen — Checklist de Conformidade Correcional</title>
+<meta name="description" content="Checklist de verificação de requisitos correcionais para cartórios de Registro de Imóveis, com base no Boletim de Inspeções CNJ.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Menu lateral -->
+  <aside class="sidebar">
+    <a class="brand-voltar" href="index.html">&larr; Início Regen</a>
+    <div class="brand">
+      <div class="brand-mark">R</div>
+      <div class="brand-text">Regen<small>Checklist de Conformidade Correcional</small></div>
+    </div>
+
+    <ul class="nav-lista" id="nav-lista" aria-label="Áreas do checklist"></ul>
+
+    <div class="sidebar-rodape">
+      <button class="mini-btn" id="btn-colab">🔗 Sessão colaborativa</button>
+      <button class="mini-btn" id="btn-importar">⬆ Importar respostas</button>
+      <input type="file" id="input-importar" accept="application/json" style="display:none">
+      <button class="mini-btn" id="btn-exportar">⬇ Exportar respostas</button>
+      <button class="mini-btn" id="btn-novo">↺ Novo checklist</button>
+    </div>
+  </aside>
+
+  <!-- Conteúdo principal -->
+  <main class="main">
+
+    <!-- Identificação global -->
+    <header class="capa">
+      <h1>Verificação de Requisitos Correcionais</h1>
+      <p class="subtitulo">Ferramenta de autoavaliação para oficiais de Registro de Imóveis, construída a partir dos apontamentos e determinações da inspeção ordinária do CNJ.</p>
+
+      <div class="capa-fields">
+        <div class="field">
+          <label for="in-cartorio">Cartório</label>
+          <input type="text" id="in-cartorio" placeholder="Ex.: 5º Ofício de Registro de Imóveis de São Paulo" list="lista-cartorios" autocomplete="off">
+          <datalist id="lista-cartorios"></datalist>
+        </div>
+        <div class="field">
+          <label for="in-titular">Responsável</label>
+          <input type="text" id="in-titular" placeholder="Nome do oficial ou preposto">
+        </div>
+        <div class="field">
+          <label for="in-data">Data de referência</label>
+          <input type="date" id="in-data">
+        </div>
+      </div>
+
+      <div class="capa-fonte">
+        Base normativa: relatório completo de inspeção ordinária da Corregedoria Nacional de Justiça, Foro Extrajudicial, TJSP, 4 a 8 de maio de 2026. Cada item indica o dispositivo correcional e/ou normativo correspondente.
+      </div>
+    </header>
+
+    <!-- Painel de colaboração (oculto por padrão) -->
+    <div class="colab-painel" id="colab-painel" style="display:none"></div>
+
+    <!-- Áreas / perguntas -->
+    <div id="areas"></div>
+
+    <!-- Barra de progresso e ação principal -->
+    <div class="barra" id="barra">
+      <span class="progresso-txt" id="progresso-txt">0 de 0 itens respondidos (0%)</span>
+      <div class="progresso-barra"><div class="progresso-fill" id="progresso-fill" style="width:0%"></div></div>
+      <div class="barra-btns">
+        <button class="btn primario" id="btn-relatorio-barra">Gerar relatório</button>
+      </div>
+    </div>
+
+    <!-- Relatório -->
+    <section class="relatorio" id="relatorio">
+      <div class="rel-head">
+        <div id="selo-container"></div>
+        <div class="rel-head-txt">
+          <h2>Relatório de Conformidade Correcional</h2>
+          <p class="cartorio-nome" id="rel-cartorio">Cartório não identificado</p>
+          <p id="rel-titular"></p>
+          <p id="rel-data"></p>
+          <p id="rel-gerado"></p>
+        </div>
+      </div>
+
+      <div class="rel-resumo">
+        <div class="resumo-card sim"><span class="num" id="resumo-sim">0</span><span class="lbl">Sim, atende</span></div>
+        <div class="resumo-card parcial"><span class="num" id="resumo-parcial">0</span><span class="lbl">Parcial</span></div>
+        <div class="resumo-card nao"><span class="num" id="resumo-nao">0</span><span class="lbl">Não atende</span></div>
+        <div class="resumo-card na"><span class="num" id="resumo-na">0</span><span class="lbl">Não se aplica</span></div>
+        <div class="resumo-card pendente"><span class="num" id="resumo-pendente">0</span><span class="lbl">Não avaliado</span></div>
+      </div>
+
+      <div class="rel-conclusao">
+        <h3>Conclusão</h3>
+        <div id="rel-conclusao-corpo"></div>
+      </div>
+
+      <div class="rel-acoes">
+        <button class="btn primario" id="btn-imprimir">Baixar / imprimir PDF</button>
+        <button class="btn claro" id="btn-exportar-2">Exportar respostas (JSON)</button>
+      </div>
+
+      <h3 style="font-size:17px; margin:6px 0 14px;">Pendências e providências recomendadas, por área</h3>
+      <div id="rel-areas"></div>
+
+      <div class="rel-acoes">
+        <button class="btn primario" id="btn-imprimir-2">Baixar / imprimir PDF</button>
+      </div>
+    </section>
+
+    <footer class="rodape">
+      Ferramenta de autoavaliação de uso interno · dados armazenados neste navegador (e, se ativada, na sessão colaborativa) · não substitui orientação jurídica ou correicional formal.
+    </footer>
+  </main>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
